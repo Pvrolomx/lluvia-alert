@@ -12,6 +12,29 @@ export default function Home() {
   const [radarTime, setRadarTime] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState(null)
+  const [deferredPrompt, setDeferredPrompt] = useState(null)
+  const [showInstall, setShowInstall] = useState(false)
+
+  // PWA Install Prompt
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+      setShowInstall(true)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const installApp = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') {
+      setShowInstall(false)
+    }
+    setDeferredPrompt(null)
+  }
 
   const checkRain = async () => {
     try {
@@ -19,7 +42,6 @@ export default function Home() {
       const radarRes = await fetch('https://api.rainviewer.com/public/weather-maps.json')
       const radarData = await radarRes.json()
       
-      const nowcast = radarData.radar?.nowcast || []
       const past = radarData.radar?.past || []
       
       // Get latest radar frame
@@ -27,14 +49,6 @@ export default function Home() {
       if (latestFrame) {
         setRadarTime(new Date(latestFrame.time * 1000).toLocaleTimeString('es-MX'))
       }
-
-      // Check precipitation in nowcast (next ~30 min)
-      let rainExpected = false
-      let rainInMinutes = null
-
-      // We'll check the tile at our location
-      // RainViewer uses tiles, we need to check the color value
-      // For simplicity, we'll use Open-Meteo for precipitation forecast
       
       // Open-Meteo API - Hourly precipitation
       const meteoRes = await fetch(
@@ -50,7 +64,6 @@ export default function Home() {
       
       // Find current hour index
       const now = new Date()
-      const currentHour = now.getHours()
       
       // Check next 2 hours for precipitation
       let precipitationSoon = false
@@ -132,6 +145,17 @@ export default function Home() {
           <h1 className="text-2xl font-bold mb-1">🌧️ Lluvia Alert</h1>
           <p className="text-gray-400 text-sm">{LOCATION_NAME}</p>
         </div>
+
+        {/* Install App Button */}
+        {showInstall && (
+          <button
+            onClick={installApp}
+            className="w-full bg-blue-600 hover:bg-blue-500 rounded-xl p-4 mb-4 flex items-center justify-center gap-2 transition-colors"
+          >
+            <span className="text-xl">📲</span>
+            <span className="font-semibold">Instalar App</span>
+          </button>
+        )}
 
         {/* Main Alert Card */}
         <div className={`${getAlertColor()} rounded-2xl p-6 mb-4 transition-all duration-500`}>
