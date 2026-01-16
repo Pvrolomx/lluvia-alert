@@ -70,8 +70,8 @@ export default function Home() {
       const map = L.map(mapRef.current).setView([userLocation.lat, userLocation.lon], 9)
       
       // Dark theme map tiles
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
         maxZoom: 19
       }).addTo(map)
       
@@ -110,17 +110,21 @@ export default function Home() {
     
     radarLayer.current = L.tileLayer(
       `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`,
-      { opacity: 0.7, zIndex: 100 }
+      { opacity: 0.8, zIndex: 100 }
     ).addTo(mapInstance.current)
     
   }, [mapReady, radarFrames, currentFrame])
 
   const installApp = async () => {
-    if (!deferredPrompt) return
-    deferredPrompt.prompt()
-    const { outcome } = await deferredPrompt.userChoice
-    if (outcome === 'accepted') setShowInstall(false)
-    setDeferredPrompt(null)
+    if (deferredPrompt) {
+      deferredPrompt.prompt()
+      const { outcome } = await deferredPrompt.userChoice
+      if (outcome === 'accepted') setShowInstall(false)
+      setDeferredPrompt(null)
+    } else {
+      // Si no hay prompt nativo, mostrar instrucciones
+      alert('Para instalar:\n\n📱 iPhone: Toca "Compartir" → "Agregar a inicio"\n\n🤖 Android: Toca el menú (⋮) → "Instalar app"')
+    }
   }
 
   const checkRain = async () => {
@@ -230,12 +234,14 @@ export default function Home() {
           <p className="text-gray-400 text-sm">📍 {locationName}</p>
         </div>
 
-        {/* Install Button */}
-        {showInstall && (
-          <button onClick={installApp} className="w-full bg-blue-600 hover:bg-blue-500 rounded-xl p-3 mb-4 flex items-center justify-center gap-2">
-            <span>📲</span> <span className="font-semibold">Instalar App</span>
-          </button>
-        )}
+        {/* Install Button - Siempre visible */}
+        <button 
+          onClick={installApp} 
+          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 rounded-xl p-4 mb-4 flex items-center justify-center gap-2 shadow-lg"
+        >
+          <span className="text-xl">📲</span> 
+          <span className="font-bold">Instalar App</span>
+        </button>
 
         {/* Alert Card */}
         <div className={`${getAlertColor()} rounded-2xl p-5 mb-4 transition-all duration-500`}>
@@ -268,7 +274,7 @@ export default function Home() {
           <div 
             ref={mapRef} 
             className="w-full h-64"
-            style={{ background: '#1a1a2e' }}
+            style={{ background: '#e5e7eb' }}
           />
           <div className="px-4 py-2 flex items-center gap-2">
             <div className="flex-1 bg-gray-700 rounded-full h-1">
