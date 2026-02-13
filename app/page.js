@@ -139,7 +139,7 @@ export default function Home() {
       
       // Open-Meteo API
       const meteoRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${userLocation.lat}&longitude=${userLocation.lon}&hourly=precipitation,precipitation_probability,weather_code&current=temperature_2m,weather_code,precipitation&timezone=America/Mexico_City&forecast_days=1`
+        `https://api.open-meteo.com/v1/forecast?latitude=${userLocation.lat}&longitude=${userLocation.lon}&hourly=precipitation,precipitation_probability,weather_code&current=temperature_2m,weather_code,precipitation,cloud_cover&timezone=America/Mexico_City&forecast_days=1`
       )
       const meteoData = await meteoRes.json()
       setForecast(meteoData)
@@ -203,7 +203,9 @@ export default function Home() {
   }, [radarFrames])
 
   const getWeatherIcon = (code) => {
-    if (code <= 3) return '☀️'
+    if (code === 0) return '☀️'
+    if (code <= 2) return '🌤️'
+    if (code === 3) return '☁️'
     if (code <= 49) return '☁️'
     if (code <= 69) return '🌧️'
     if (code <= 79) return '🌨️'
