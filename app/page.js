@@ -42,6 +42,11 @@ export default function Home() {
 
   // PWA Install Prompt
   useEffect(() => {
+    // Si ya está instalada como PWA, ocultar botón de instalación
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setShowInstall(false)
+      return
+    }
     const handler = (e) => {
       e.preventDefault()
       setDeferredPrompt(e)
@@ -180,7 +185,8 @@ export default function Home() {
       setLoading(false)
       
     } catch (error) {
-      console.error('Error:', error)
+      console.error('Error al consultar APIs:', error)
+      setRainAlert({ type: 'error', message: '⚠️ Sin conexión al radar' })
       setLoading(false)
     }
   }
@@ -218,6 +224,7 @@ export default function Home() {
     if (rainAlert.type === 'raining') return 'bg-blue-600'
     if (rainAlert.type === 'soon' && rainAlert.minutes <= 15) return 'bg-red-600'
     if (rainAlert.type === 'soon') return 'bg-yellow-600'
+    if (rainAlert.type === 'error') return 'bg-orange-700'
     return 'bg-green-700'
   }
 
@@ -258,6 +265,7 @@ export default function Home() {
                 {rainAlert?.type === 'raining' && '🌧️'}
                 {rainAlert?.type === 'soon' && '⚠️'}
                 {rainAlert?.type === 'clear' && '☀️'}
+                {rainAlert?.type === 'error' && '📡'}
               </div>
               <p className="text-xl font-bold">{rainAlert?.message}</p>
               {rainAlert?.type === 'raining' && (
@@ -282,10 +290,10 @@ export default function Home() {
             <div className="flex-1 bg-gray-700 rounded-full h-1">
               <div 
                 className="bg-blue-500 h-1 rounded-full transition-all"
-                style={{ width: `${((currentFrame + 1) / radarFrames.length) * 100}%` }}
+                style={{ width: radarFrames.length > 0 ? `${((currentFrame + 1) / radarFrames.length) * 100}%` : '0%' }}
               />
             </div>
-            <span className="text-xs text-gray-500">{currentFrame + 1}/{radarFrames.length}</span>
+            <span className="text-xs text-gray-500">{radarFrames.length > 0 ? `${currentFrame + 1}/${radarFrames.length}` : '--'}</span>
           </div>
         </div>
 
