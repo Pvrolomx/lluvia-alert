@@ -232,8 +232,6 @@ export default function Home() {
   // FIX fiscal #1: AbortController vive aquí (síncronamente abortable en cleanup)
   // checkRain recibe el signal como parámetro para evitar cerrar sobre el controller
   useEffect(() => {
-    if (!userLocation.lat) return
-
     const run = () => {
       controllerRef.current?.abort() // abortar llamada anterior si sigue en vuelo
       controllerRef.current = new AbortController()
@@ -360,7 +358,7 @@ export default function Home() {
                 <span className="text-4xl">{getWeatherIcon(forecast.current?.weather_code)}</span>
                 <span className="text-3xl font-bold">{Math.round(forecast.current?.temperature_2m)}°C</span>
               </div>
-              <button onClick={checkRain} className="text-2xl hover:scale-110 transition-transform">🔄</button>
+              <button onClick={() => { controllerRef.current?.abort(); controllerRef.current = new AbortController(); checkRain(controllerRef.current.signal) }} className="text-2xl hover:scale-110 transition-transform">🔄</button>
             </div>
           </div>
         )}
