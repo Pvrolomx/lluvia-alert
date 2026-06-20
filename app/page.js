@@ -228,23 +228,23 @@ export default function Home() {
 
   }, [userLocation]) // FIX #3: userLocation en deps de useCallback
 
-  // ─── Trigger inicial y refresco cada 5 min ───────────────────────────────────
-  // FIX fiscal #1: AbortController vive aquí (síncronamente abortable en cleanup)
-  // checkRain recibe el signal como parámetro para evitar cerrar sobre el controller
-  useEffect(() => {
-    const run = () => {
-      controllerRef.current?.abort() // abortar llamada anterior si sigue en vuelo
-      controllerRef.current = new AbortController()
-      checkRain(controllerRef.current.signal)
-    }
+  // ─── Trigger manual y automático — fuente única de verdad ─────────────────
+  // run() es el único punto que crea/aborta el controller y llama checkRain.
+  // Lo usan tanto el effect (intervalo de 5min) como el botón 🔄 manual.
+  const run = useCallback(() => {
+    controllerRef.current?.abort()
+    controllerRef.current = new AbortController()
+    checkRain(controllerRef.current.signal)
+  }, [checkRain])
 
+  useEffect(() => {
     run()
     const interval = setInterval(run, 5 * 60 * 1000)
     return () => {
       clearInterval(interval)
-      controllerRef.current?.abort() // abort síncrono garantizado en desmonte
+      controllerRef.current?.abort()
     }
-  }, [checkRain]) // checkRain estable via useCallback([userLocation])
+  }, [run])
 
   // ─── Animación de radar ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -358,7 +358,7 @@ export default function Home() {
                 <span className="text-4xl">{getWeatherIcon(forecast.current?.weather_code)}</span>
                 <span className="text-3xl font-bold">{Math.round(forecast.current?.temperature_2m)}°C</span>
               </div>
-              <button onClick={() => { controllerRef.current?.abort(); controllerRef.current = new AbortController(); checkRain(controllerRef.current.signal) }} className="text-2xl hover:scale-110 transition-transform">🔄</button>
+              <button onClick={run} className="text-2xl hover:scale-110 transition-transform">🔄</button>
             </div>
           </div>
         )}
