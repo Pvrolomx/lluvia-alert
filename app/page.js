@@ -170,49 +170,116 @@ export default function Home() {
     }
   }
 
+  // ─── Helpers de radar ───────────────────────────────────────────────────────
+
+  // Convertir lat/lon a índices de tile y pixel exacto dentro del tile (256x256)
+  const latLonToTilePixel = useCallback((lat, lon, zoom) => {
+    const latRad = lat * Math.PI / 180
+    const n = Math.pow(2, zoom)
+    const xFloat = (lon + 180) / 360 * n
+    const yFloat = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n
+    return {
+      tileX: Math.floor(xFloat),
+      tileY: Math.floor(yFloat),
+      pixelX: Math.floor((xFloat % 1) * 256),
+      pixelY: Math.floor((yFloat % 1) * 256),
+    }
+  }, [])
+
+  // Leer intensidad de precipitación en el punto exacto del usuario via Canvas.
+  // RainViewer scheme 2: pixel transparente = sin lluvia; color → mm/h.
+  // Esto reemplaza current.precipitation de Open-Meteo (modelo de grilla ~5km).
+  const getRadarIntensityAtLocation = useCallback(async (framePath, lat, lon) => {
+    const ZOOM = 6
+    const { tileX, tileY, pixelX, pixelY } = latLonToTilePixel(lat, lon, ZOOM)
+    const url = `https://tilecache.rainviewer.com${framePath}/256/${ZOOM}/${tileX}/${tileY}/2/1_1.png`
+
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 256
+        canvas.height = 256
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        const [r, g, b, a] = ctx.getImageData(pixelX, pixelY, 1, 1).data
+        if (a < 10) { resolve(0); return } // transparente = sin lluvia
+
+        // Mapa de colores RainViewer scheme 2 → intensidad mm/h
+        const colorMap = [
+          [[0, 236, 236], 0.1],   // cyan - llovizna
+          [[1, 160, 246], 0.3],   // azul claro
+          [[0, 0, 246], 0.5],     // azul
+          [[0, 255, 0], 1.0],     // verde
+          [[0, 200, 0], 2.0],     // verde medio
+          [[0, 144, 0], 4.0],     // verde oscuro
+          [[255, 255, 0], 6.0],   // amarillo
+          [[231, 192, 0], 10.0],  // amarillo oscuro
+          [[255, 144, 0], 16.0],  // naranja
+          [[255, 0, 0], 25.0],    // rojo
+          [[214, 0, 0], 40.0],    // rojo oscuro
+          [[255, 0, 255], 64.0],  // magenta
+          [[153, 85, 201], 80.0], // violeta
+        ]
+        let minDist = Infinity, intensity = 0
+        for (const [[cr, cg, cb], mm] of colorMap) {
+          const d = Math.sqrt((r-cr)**2 + (g-cg)**2 + (b-cb)**2)
+          if (d < minDist) { minDist = d; intensity = mm }
+        }
+        resolve(intensity)
+      }
+      img.onerror = () => resolve(-1) // error de carga → no concluyente
+      img.src = url
+    })
+  }, [latLonToTilePixel])
+
   // ─── Consulta de lluvia ──────────────────────────────────────────────────────
-  // checkRain recibe el signal del AbortController que vive en controllerRef (el
-  // effect lo crea/destruye). Así el abort es síncrono en el cleanup del effect.
+  // "Está lloviendo AQUÍ" se determina leyendo el pixel del tile de radar en las
+  // coordenadas GPS exactas del usuario — no el modelo Open-Meteo (~5km de grilla).
   const checkRain = useCallback(async (signal) => {
     try {
-      // RainViewer
+      // 1. RainViewer — frames para mapa y lectura de punto
       const radarRes = await fetch('https://api.rainviewer.com/public/weather-maps.json', { signal })
       const radarData = await radarRes.json()
       const frames = [...(radarData.radar?.past || []), ...(radarData.radar?.nowcast || [])]
       setRadarFrames(frames)
-      // FIX #6 + fiscal #2: usar ref como flag de inicialización en lugar de
-      // prev===0 (frágil — puede coincidir con ciclo de animación)
       if (!radarInitialized.current && frames.length > 0) {
         setCurrentFrame(Math.max(0, frames.length - 3))
         radarInitialized.current = true
       }
 
-      // Open-Meteo con timeformat=unixtime
+      // 2. Open-Meteo — temperatura, ícono y pronóstico horario (ya sin precipitation current)
       const meteoRes = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${userLocation.lat}&longitude=${userLocation.lon}` +
         `&hourly=precipitation,precipitation_probability,weather_code` +
-        `&current=temperature_2m,weather_code,precipitation,cloud_cover` +
+        `&current=temperature_2m,weather_code,cloud_cover` +
         `&timezone=America/Mexico_City&forecast_days=1&timeformat=unixtime`,
         { signal }
       )
       const meteoData = await meteoRes.json()
       setForecast(meteoData)
 
-      const current = meteoData.current
-      const hourly = meteoData.hourly
-      const nowTs = Date.now() / 1000 // unix seconds
+      // 3. Lectura de radar en punto exacto (frame más reciente)
+      let radarIntensity = 0
+      if (frames.length > 0) {
+        const lastFrame = frames[frames.length - 1]
+        radarIntensity = await getRadarIntensityAtLocation(
+          lastFrame.path, userLocation.lat, userLocation.lon
+        )
+      }
 
+      // 4. Pronóstico próximas 2h via Open-Meteo hourly
+      const hourly = meteoData.hourly
+      const nowTs = Date.now() / 1000
       let precipitationSoon = false
       let precipMinutes = null
 
       for (let i = 0; i < hourly.time.length; i++) {
-        const hourTs = hourly.time[i] // ya es número unix
-        const hoursDiff = (hourTs - nowTs) / 3600
-
+        const hoursDiff = (hourly.time[i] - nowTs) / 3600
         if (hoursDiff >= 0 && hoursDiff <= 2) {
-          // FIX #11: precipitation_probability puede estar ausente → fallback a 0
           const prob = hourly.precipitation_probability?.[i] ?? 0
-          if ((hourly.precipitation[i] ?? 0) > 0 || prob > 50) {
+          if ((hourly.precipitation[i] ?? 0) > 0.2 || prob > 60) {
             precipitationSoon = true
             precipMinutes = Math.round(hoursDiff * 60)
             break
@@ -220,29 +287,35 @@ export default function Home() {
         }
       }
 
-      if (current.precipitation > 0) {
-        setRainAlert({ type: 'raining', message: '¡Está lloviendo!', precipitation: current.precipitation })
+      // 5. Decisión: radar punto (fuente primaria) > modelo área (pronóstico)
+      if (radarIntensity > 0) {
+        const label = radarIntensity >= 16 ? '⛈️ Lluvia intensa'
+          : radarIntensity >= 4  ? '🌧️ Lloviendo'
+          : '🌦️ Llovizna cerca'
+        setRainAlert({ type: 'raining', message: label, precipitation: radarIntensity })
       } else if (precipitationSoon) {
         setRainAlert({
           type: 'soon',
-          message: precipMinutes <= 15 ? `🚨 Lluvia en ~${precipMinutes} min` : `⚠️ Lluvia en ~${precipMinutes} min`,
+          message: precipMinutes <= 15
+            ? `🚨 Lluvia en ~${precipMinutes} min`
+            : `⚠️ Lluvia en ~${precipMinutes} min`,
           minutes: precipMinutes
         })
       } else {
-        setRainAlert({ type: 'clear', message: '☀️ Sin lluvia próxima' })
+        setRainAlert({ type: 'clear', message: '☀️ Sin lluvia aquí' })
       }
 
       setLastUpdate(new Date().toLocaleTimeString('es-MX'))
       setLoading(false)
 
     } catch (error) {
-      if (error.name === 'AbortError') return // desmonte limpio, no es error
+      if (error.name === 'AbortError') return
       console.error('Error al consultar APIs:', error)
       setRainAlert({ type: 'error', message: '⚠️ Sin conexión al radar' })
       setLoading(false)
     }
 
-  }, [userLocation]) // FIX #3: userLocation en deps de useCallback
+  }, [userLocation, getRadarIntensityAtLocation]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Trigger manual y automático — fuente única de verdad ─────────────────
   // run() es el único punto que crea/aborta el controller y llama checkRain.
