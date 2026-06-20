@@ -18,6 +18,7 @@ export default function Home() {
   const [mapReady, setMapReady] = useState(false)
   const [userLocation, setUserLocation] = useState({ lat: DEFAULT_LAT, lon: DEFAULT_LON })
   const [locationName, setLocationName] = useState(LOCATION_NAME)
+  const [showDetails, setShowDetails] = useState(false)
 
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
@@ -398,7 +399,7 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [radarFrames])
 
-  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  // ─── Helpers de render ───────────────────────────────────────────────────────
   const getWeatherIcon = (code) => {
     if (code === 0) return '☀️'
     if (code <= 2) return '🌤️'
@@ -409,132 +410,168 @@ export default function Home() {
     return '🌤️'
   }
 
-  const getAlertColor = () => {
-    if (!rainAlert) return 'bg-gray-800'
-    if (rainAlert.type === 'raining') return 'bg-blue-600'
-    if (rainAlert.type === 'soon' && rainAlert.minutes <= 15) return 'bg-red-600'
-    if (rainAlert.type === 'soon') return 'bg-yellow-600'
-    if (rainAlert.type === 'error') return 'bg-orange-700'
-    return 'bg-green-700'
-  }
-
   const getFrameTime = () => {
     if (radarFrames.length === 0) return ''
     const frame = radarFrames[currentFrame]
     return new Date(frame.time * 1000).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
   }
 
+  // Semáforo: color de fondo + color del círculo + veredicto para el caso de uso perros
+  const getSemaphore = () => {
+    if (loading) return { bg: 'bg-gray-900', circle: 'bg-gray-700', verdict: '...', sub: 'Consultando radar' }
+    if (!rainAlert) return { bg: 'bg-gray-900', circle: 'bg-gray-700', verdict: '...', sub: '' }
+
+    switch (rainAlert.type) {
+      case 'raining':
+        return {
+          bg: 'bg-red-950',
+          circle: rainAlert.precipitation >= 16 ? 'bg-red-500' : 'bg-orange-500',
+          verdict: '🔴 NO SALGAS',
+          sub: rainAlert.message,
+        }
+      case 'soon':
+        return {
+          bg: rainAlert.minutes <= 15 ? 'bg-red-950' : 'bg-yellow-950',
+          circle: rainAlert.minutes <= 15 ? 'bg-red-500' : 'bg-yellow-500',
+          verdict: rainAlert.minutes <= 15 ? '🔴 ESPERA' : '🟡 CON CUIDADO',
+          sub: rainAlert.message,
+        }
+      case 'clear':
+        return { bg: 'bg-green-950', circle: 'bg-green-500', verdict: '🟢 ¡SALTE!', sub: 'Sin lluvia aquí' }
+      case 'error':
+        return { bg: 'bg-gray-900', circle: 'bg-orange-700', verdict: '📡', sub: 'Sin conexión al radar' }
+      default:
+        return { bg: 'bg-gray-900', circle: 'bg-gray-700', verdict: '...', sub: '' }
+    }
+  }
+
   // ─── Render ──────────────────────────────────────────────────────────────────
+  const sem = getSemaphore()
+
   return (
-    <main className="min-h-screen bg-gray-900 text-white">
-      <div className="max-w-lg mx-auto p-4">
+    <main className={`min-h-screen ${sem.bg} text-white transition-colors duration-700`}>
+      <div className="max-w-lg mx-auto flex flex-col min-h-screen p-4">
 
         {/* Header */}
-        <div className="text-center mb-4">
-          <h1 className="text-2xl font-bold mb-1">🌧️ Lluvia PV</h1>
-          <p className="text-gray-400 text-sm">📍 {locationName}</p>
+        <div className="flex items-center justify-between mb-6 pt-2">
+          <div>
+            <h1 className="text-lg font-bold">🌧️ Lluvia PV</h1>
+            <p className="text-xs text-gray-400">📍 {locationName}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {showInstall && (
+              <button
+                onClick={installApp}
+                className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg"
+              >
+                📲 Instalar
+              </button>
+            )}
+            <button onClick={run} className="text-xl hover:scale-110 transition-transform active:scale-95">
+              🔄
+            </button>
+          </div>
         </div>
 
-        {/* FIX #4: Botón condicionado a showInstall (antes era siempre visible) */}
-        {showInstall && (
-          <button
-            onClick={installApp}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 rounded-xl p-4 mb-4 flex items-center justify-center gap-2 shadow-lg"
-          >
-            <span className="text-xl">📲</span>
-            <span className="font-bold">Instalar App</span>
-          </button>
-        )}
+        {/* ── SEMÁFORO — protagonista ─────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col items-center justify-center py-6">
 
-        {/* Alert Card */}
-        <div className={`${getAlertColor()} rounded-2xl p-5 mb-4 transition-all duration-500`}>
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="animate-spin text-3xl mb-2">🔄</div>
-              <p>Consultando radar...</p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <div className="text-4xl mb-2">
-                {rainAlert?.type === 'raining' && '🌧️'}
-                {rainAlert?.type === 'soon' && '⚠️'}
-                {rainAlert?.type === 'clear' && '☀️'}
-                {rainAlert?.type === 'error' && '📡'}
+          {/* Círculo semáforo */}
+          <div className={`${sem.circle} rounded-full flex items-center justify-center shadow-2xl transition-colors duration-700 mb-6`}
+            style={{ width: 200, height: 200 }}>
+            {loading
+              ? <div className="animate-spin text-5xl">🔄</div>
+              : <span className="text-6xl font-black tracking-tight text-white drop-shadow-lg text-center px-4 leading-tight">
+                  {sem.verdict}
+                </span>
+            }
+          </div>
+
+          {/* Subtítulo */}
+          <p className="text-center text-xl font-semibold text-white/90 mb-1">{sem.sub}</p>
+
+          {/* Temperatura + fuente */}
+          {forecast?.current && (
+            <p className="text-center text-sm text-white/50 mt-1">
+              {getWeatherIcon(forecast.current.weather_code)} {Math.round(forecast.current.temperature_2m)}°C
+              {rainAlert?.source === 'model' && <span className="ml-2 text-yellow-400/70">· modelo</span>}
+            </p>
+          )}
+
+          {/* Última actualización */}
+          <p className="text-xs text-white/30 mt-3">
+            {lastUpdate ? `Actualizado ${lastUpdate}` : 'Consultando...'}
+          </p>
+        </div>
+
+        {/* ── DETALLES — colapsados por defecto ──────────────────────────────── */}
+        <div className="mt-auto">
+          <button
+            onClick={() => setShowDetails(v => !v)}
+            className="w-full text-center text-sm text-white/40 hover:text-white/70 py-3 transition-colors"
+          >
+            {showDetails ? '▲ Ocultar detalles' : '▼ Ver radar y pronóstico'}
+          </button>
+
+          {showDetails && (
+            <div className="space-y-3 pb-4">
+
+              {/* Mapa de radar */}
+              <div className="bg-white/5 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+                  <span className="text-sm text-gray-400">🛰️ Radar en vivo</span>
+                  <span className="text-xs text-blue-400">{getFrameTime()}</span>
+                </div>
+                <div ref={mapRef} className="w-full h-56" style={{ background: '#1a2030' }} />
+                <div className="px-4 py-2 flex items-center gap-2">
+                  <div className="flex-1 bg-white/10 rounded-full h-1">
+                    <div
+                      className="bg-blue-400 h-1 rounded-full transition-all"
+                      style={{ width: radarFrames.length > 0 ? `${((currentFrame + 1) / radarFrames.length) * 100}%` : '0%' }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {radarFrames.length > 0 ? `${currentFrame + 1}/${radarFrames.length}` : '--'}
+                  </span>
+                </div>
               </div>
-              <p className="text-xl font-bold">{rainAlert?.message}</p>
-              {rainAlert?.type === 'raining' && (
-                <p className="text-sm opacity-80 mt-1">{rainAlert.precipitation} mm</p>
+
+              {/* Próximas horas (minutely_15 → mostramos slots de 15min) */}
+              {forecast?.minutely_15 && (
+                <div className="bg-white/5 rounded-xl p-4">
+                  <h2 className="text-xs text-gray-400 mb-3 uppercase tracking-wide">Próximos 90 min</h2>
+                  <div className="flex gap-3 overflow-x-auto pb-1">
+                    {forecast.minutely_15.time.slice(0, 6).map((time, i) => {
+                      const t = new Date(time * 1000)
+                      const label = `${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`
+                      const prob = forecast.minutely_15.precipitation_probability?.[i] ?? 0
+                      const precip = forecast.minutely_15.precipitation?.[i] ?? 0
+                      const hasRain = precip > 0 || prob > 50
+                      return (
+                        <div key={i} className="flex-shrink-0 text-center min-w-[50px]">
+                          <p className="text-xs text-gray-400">{label}</p>
+                          <p className="text-lg my-1">{precip > 0 ? '🌧️' : prob > 50 ? '🌦️' : '☀️'}</p>
+                          <p className={`text-xs font-medium ${hasRain ? 'text-blue-400' : 'text-gray-500'}`}>
+                            {prob}%
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               )}
+
+              {/* Footer */}
+              <p className="text-center text-xs text-white/20 py-1">
+                RainViewer + Open-Meteo · Hecho con ❤️ por C0 — Colmena 2026
+              </p>
+
             </div>
           )}
-        </div>
-
-        {/* Radar Map */}
-        <div className="bg-gray-800 rounded-xl overflow-hidden mb-4">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
-            <span className="text-sm text-gray-400">🛰️ Radar en vivo</span>
-            <span className="text-xs text-blue-400">{getFrameTime()}</span>
-          </div>
-          <div
-            ref={mapRef}
-            className="w-full h-64"
-            style={{ background: '#e5e7eb' }}
-          />
-          <div className="px-4 py-2 flex items-center gap-2">
-            <div className="flex-1 bg-gray-700 rounded-full h-1">
-              <div
-                className="bg-blue-500 h-1 rounded-full transition-all"
-                style={{ width: radarFrames.length > 0 ? `${((currentFrame + 1) / radarFrames.length) * 100}%` : '0%' }}
-              />
-            </div>
-            <span className="text-xs text-gray-500">
-              {radarFrames.length > 0 ? `${currentFrame + 1}/${radarFrames.length}` : '--'}
-            </span>
-          </div>
-        </div>
-
-        {/* Current Conditions */}
-        {forecast && (
-          <div className="bg-gray-800 rounded-xl p-4 mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-4xl">{getWeatherIcon(forecast.current?.weather_code)}</span>
-                <span className="text-3xl font-bold">{Math.round(forecast.current?.temperature_2m)}°C</span>
-              </div>
-              <button onClick={run} className="text-2xl hover:scale-110 transition-transform">🔄</button>
-            </div>
-          </div>
-        )}
-
-        {/* Hourly Forecast */}
-        {forecast?.hourly && (
-          <div className="bg-gray-800 rounded-xl p-4 mb-4">
-            <h2 className="text-sm text-gray-400 mb-3">Próximas horas</h2>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {forecast.hourly.time.slice(0, 8).map((time, i) => {
-                // time ya es unix timestamp (timeformat=unixtime)
-                const hour = new Date(time * 1000).getHours()
-                const prob = forecast.hourly.precipitation_probability?.[i] ?? 0
-                return (
-                  <div key={i} className="flex-shrink-0 text-center min-w-[45px]">
-                    <p className="text-xs text-gray-400">{hour}:00</p>
-                    <p className="text-lg my-1">{getWeatherIcon(forecast.hourly.weather_code[i])}</p>
-                    <p className={`text-xs font-medium ${prob > 50 ? 'text-blue-400' : 'text-gray-500'}`}>{prob}%</p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="text-center text-xs text-gray-500 py-2">
-          <p>Actualizado: {lastUpdate || '...'}</p>
-          <p className="mt-1">Open-Meteo + RainViewer</p>
-          <p className="mt-2">Hecho con ❤️ por <span className="text-blue-400">C0</span> — Colmena 2026</p>
         </div>
 
       </div>
     </main>
   )
 }
+
