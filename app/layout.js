@@ -9,7 +9,22 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        {children}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js')
+                    .then(function(reg) { console.log('SW registrado:', reg.scope) })
+                    .catch(function(err) { console.warn('SW fallo:', err) })
+                })
+              }
+            `,
+          }}
+        />
+      </body>
     </html>
   )
 }
