@@ -80,11 +80,19 @@ export default function Home() {
       if (cancelled || !mapRef.current || mapInstance.current) return
 
       const L = window.L
-      const map = L.map(mapRef.current).setView([DEFAULT_LAT, DEFAULT_LON], 9)
+      const map = L.map(mapRef.current, {
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        dragging: false,
+        zoomControl: false,
+        minZoom: 5,
+        maxZoom: 10,
+      }).setView([DEFAULT_LAT, DEFAULT_LON], 7)
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
-        maxZoom: 19
+        minZoom: 5,
+        maxZoom: 10,
       }).addTo(map)
 
       // Marker inicial en default; se actualiza cuando llega geoloc
@@ -118,27 +126,35 @@ export default function Home() {
   useEffect(() => {
     if (!mapReady || !mapInstance.current) return
     const { lat, lon } = userLocation
-    mapInstance.current.setView([lat, lon], 9)
+    mapInstance.current.setView([lat, lon], 7)
     if (markerRef.current) {
       markerRef.current.setLatLng([lat, lon])
     }
   }, [mapReady, userLocation])
 
   // ─── Actualizar capa de radar ────────────────────────────────────────────────
+  // El layer se crea UNA SOLA VEZ con el primer frame; en animaciones posteriores
+  // solo se actualiza la URL vía setUrl() para evitar el parpadeo de remove/add
+  // y el "Zoom Level Not Supported" que aparece mientras el nuevo layer carga.
   useEffect(() => {
     if (!mapReady || !mapInstance.current || radarFrames.length === 0) return
 
     const L = window.L
     const frame = radarFrames[currentFrame]
+    const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`
 
-    if (radarLayer.current) {
-      mapInstance.current.removeLayer(radarLayer.current)
+    if (!radarLayer.current) {
+      // Primera vez: crear el layer
+      radarLayer.current = L.tileLayer(url, {
+        opacity: 0.6,
+        zIndex: 100,
+        minZoom: 5,
+        maxZoom: 10,
+      }).addTo(mapInstance.current)
+    } else {
+      // Frames siguientes: solo actualizar la URL, sin remove/add
+      radarLayer.current.setUrl(url)
     }
-
-    radarLayer.current = L.tileLayer(
-      `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`,
-      { opacity: 0.8, zIndex: 100 }
-    ).addTo(mapInstance.current)
 
   }, [mapReady, radarFrames, currentFrame])
 
