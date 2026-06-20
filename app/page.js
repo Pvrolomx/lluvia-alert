@@ -23,6 +23,8 @@ export default function Home() {
   const mapInstance = useRef(null)
   const markerRef = useRef(null)
   const radarLayer = useRef(null)
+  const controllerRef = useRef(null)    // AbortController activo
+  const radarInitialized = useRef(false) // FIX #2: flag de primer frame cargado
 
   // ─── Geolocalización ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -153,22 +155,21 @@ export default function Home() {
   }
 
   // ─── Consulta de lluvia ──────────────────────────────────────────────────────
-  // FIX #8: Open-Meteo devuelve tiempos sin timezone offset ("2026-06-20T14:00").
-  // new Date() en ese formato es ambiguo entre UTC y local — diferencia de 6h en PV.
-  // Solución: pedir timeformat=unixtime y comparar timestamps numéricos directamente.
-  const checkRain = useCallback(async () => {
-    const controller = new AbortController()
-    const { signal } = controller
-
+  // checkRain recibe el signal del AbortController que vive en controllerRef (el
+  // effect lo crea/destruye). Así el abort es síncrono en el cleanup del effect.
+  const checkRain = useCallback(async (signal) => {
     try {
       // RainViewer
       const radarRes = await fetch('https://api.rainviewer.com/public/weather-maps.json', { signal })
       const radarData = await radarRes.json()
       const frames = [...(radarData.radar?.past || []), ...(radarData.radar?.nowcast || [])]
       setRadarFrames(frames)
-      // FIX #6: no resetear currentFrame en cada refresh para evitar salto visual;
-      // solo lo inicializamos si aún no hay frames cargados
-      setCurrentFrame(prev => frames.length > 0 && prev === 0 ? Math.max(0, frames.length - 3) : prev)
+      // FIX #6 + fiscal #2: usar ref como flag de inicialización en lugar de
+      // prev===0 (frágil — puede coincidir con ciclo de animación)
+      if (!radarInitialized.current && frames.length > 0) {
+        setCurrentFrame(Math.max(0, frames.length - 3))
+        radarInitialized.current = true
+      }
 
       // Open-Meteo con timeformat=unixtime
       const meteoRes = await fetch(
@@ -225,19 +226,27 @@ export default function Home() {
       setLoading(false)
     }
 
-    return () => controller.abort()
   }, [userLocation]) // FIX #3: userLocation en deps de useCallback
 
   // ─── Trigger inicial y refresco cada 5 min ───────────────────────────────────
+  // FIX fiscal #1: AbortController vive aquí (síncronamente abortable en cleanup)
+  // checkRain recibe el signal como parámetro para evitar cerrar sobre el controller
   useEffect(() => {
     if (!userLocation.lat) return
-    const abort = checkRain()
-    const interval = setInterval(checkRain, 5 * 60 * 1000)
+
+    const run = () => {
+      controllerRef.current?.abort() // abortar llamada anterior si sigue en vuelo
+      controllerRef.current = new AbortController()
+      checkRain(controllerRef.current.signal)
+    }
+
+    run()
+    const interval = setInterval(run, 5 * 60 * 1000)
     return () => {
       clearInterval(interval)
-      if (typeof abort?.then === 'function') abort.then(fn => fn?.())
+      controllerRef.current?.abort() // abort síncrono garantizado en desmonte
     }
-  }, [checkRain]) // FIX #3: checkRain en deps (estable via useCallback)
+  }, [checkRain]) // checkRain estable via useCallback([userLocation])
 
   // ─── Animación de radar ──────────────────────────────────────────────────────
   useEffect(() => {
